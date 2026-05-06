@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Editor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; padding: 2rem; }
+    h1 { font-size: 1.6rem; margin-bottom: 1.5rem; color: #fff; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    h2 { font-size: 1rem; color: #aaa; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: .05em; }
+
+    /* Drop zone */
+    #drop-zone {
+      border: 2px dashed #333; border-radius: 8px; padding: 2.5rem;
+      text-align: center; cursor: pointer; transition: border-color .2s, background .2s;
+    }
+    #drop-zone.over { border-color: #4f8ef7; background: #1c2a3a; }
+    #drop-zone p { color: #666; }
+    #drop-zone span { color: #4f8ef7; font-weight: 600; }
+
+    /* Clip list */
+    #clip-list { margin-top: 1rem; display: flex; flex-direction: column; gap: .5rem; }
+    .clip-item {
+      background: #222; border-radius: 6px; padding: .6rem 1rem;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .clip-name { font-size: .9rem; }
+    .clip-dur { font-size: .8rem; color: #777; }
+
+    /* Instructions */
+    textarea {
+      width: 100%; background: #111; border: 1px solid #2a2a2a; border-radius: 6px;
+      color: #e0e0e0; font-size: .95rem; padding: .75rem; resize: vertical; min-height: 80px;
+      font-family: inherit;
+    }
+    textarea:focus { outline: none; border-color: #4f8ef7; }
+
+    /* Button */
+    button {
+      background: #4f8ef7; color: #fff; border: none; border-radius: 6px;
+      padding: .65rem 1.5rem; font-size: .95rem; cursor: pointer; font-weight: 600;
+      margin-top: 1rem; transition: background .2s;
+    }
+    button:hover { background: #3a7ae0; }
+    button:disabled { background: #2a2a2a; color: #555; cursor: not-allowed; }
+
+    /* Plan / Status */
+    #plan-box { display: none; }
+    pre {
+      background: #111; border: 1px solid #2a2a2a; border-radius: 6px;
+      padding: 1rem; font-size: .82rem; overflow-x: auto; color: #7ec8a0;
+      white-space: pre-wrap; word-break: break-all;
+    }
+
+    /* Status */
+    #status-box { display: none; }
+    .status-badge {
+      display: inline-block; padding: .3rem .75rem; border-radius: 20px;
+      font-size: .85rem; font-weight: 600; margin-bottom: .75rem;
+    }
+    .status-processing { background: #2a3a1a; color: #8bc34a; }
+    .status-done { background: #1a3a2a; color: #4caf82; }
+    .status-error { background: #3a1a1a; color: #f44; }
+
+    #download-link {
+      display: none; background: #1a3a2a; color: #4caf82; border: 1px solid #2a5a3a;
+      border-radius: 6px; padding: .65rem 1.5rem; font-weight: 600; text-decoration: none;
+      margin-top: .5rem; font-size: .95rem;
+    }
+    #download-link:hover { background: #1f4a32; }
+
+    .err { color: #f66; font-size: .875rem; margin-top: .5rem; }
+  </style>
+</head>
+<body>
+  <h1>Video Editor</h1>
+
+  <div class="card">
+    <h2>1. Clips hochladen</h2>
+    <div id="drop-zone">
+      <p>Clips hier ablegen oder <span>klicken zum Auswählen</span></p>
+      <input type="file" id="file-input" multiple accept="video/*" style="display:none">
+    </div>
+    <div id="clip-list"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. Schnitt-Anweisungen</h2>
+    <textarea id="instructions" placeholder='z.B. "Schneide die ersten 10 Sekunden von Clip1, dann Clip2 komplett, dann die letzten 5 Sekunden von Clip3"'></textarea>
+    <button id="edit-btn" disabled>Video zusammensetzen</button>
+    <div id="err-msg" class="err"></div>
+  </div>
+
+  <div class="card" id="plan-box">
+    <h2>Erkannter Schnittplan (JSON)</h2>
+    <pre id="plan-json"></pre>
+  </div>
+
+  <div class="card" id="status-box">
+    <h2>Status</h2>
+    <div id="status-badge" class="status-badge status-processing">Verarbeitung...</div>
+    <div id="status-msg"></div>
+    <a id="download-link" href="#">Download fertigem Video</a>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const clipList = document.getElementById('clip-list');
+    const editBtn = document.getElementById('edit-btn');
+    const instructions = document.getElementById('instructions');
+    const errMsg = document.getElementById('err-msg');
+    const planBox = document.getElementById('plan-box');
+    const planJson = document.getElementById('plan-json');
+    const statusBox = document.getElementById('status-box');
+    const statusBadge = document.getElementById('status-badge');
+    const statusMsg = document.getElementById('status-msg');
+    const downloadLink = document.getElementById('download-link');
+
+    let uploadedClips = []; // [{clip_id, name, duration}]
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+    dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('over'); handleFiles(e.dataTransfer.files); });
+    fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+
+    async function handleFiles(files) {
+      if (!files.length) return;
+      const formData = new FormData();
+      for (const f of files) formData.append('files', f);
+      editBtn.disabled = true;
+      errMsg.textContent = 'Lade hoch...';
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Upload fehlgeschlagen');
+        uploadedClips = [...uploadedClips, ...data.clips];
+        renderClips();
+        errMsg.textContent = '';
+      } catch (e) {
+        errMsg.textContent = e.message;
+      }
+      updateEditBtn();
+    }
+
+    function renderClips() {
+      clipList.innerHTML = uploadedClips.map(c =>
+        `<div class="clip-item"><span class="clip-name">${c.name}</span><span class="clip-dur">${c.duration.toFixed(2)}s</span></div>`
+      ).join('');
+    }
+
+    function updateEditBtn() {
+      editBtn.disabled = uploadedClips.length === 0 || !instructions.value.trim();
+    }
+    instructions.addEventListener('input', updateEditBtn);
+
+    editBtn.addEventListener('click', async () => {
+      errMsg.textContent = '';
+      planBox.style.display = 'none';
+      statusBox.style.display = 'none';
+      downloadLink.style.display = 'none';
+      editBtn.disabled = true;
+
+      try {
+        const res = await fetch('/edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clip_ids: uploadedClips.map(c => c.clip_id),
+            instructions: instructions.value.trim()
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Fehler beim Starten');
+
+        planBox.style.display = 'block';
+        planJson.textContent = JSON.stringify(data.plan, null, 2);
+
+        statusBox.style.display = 'block';
+        pollStatus(data.job_id);
+      } catch (e) {
+        errMsg.textContent = e.message;
+        editBtn.disabled = false;
+      }
+    });
+
+    async function pollStatus(jobId) {
+      while (true) {
+        await new Promise(r => setTimeout(r, 1500));
+        try {
+          const res = await fetch(`/status/${jobId}`);
+          const data = await res.json();
+          if (data.status === 'done') {
+            statusBadge.className = 'status-badge status-done';
+            statusBadge.textContent = 'Fertig';
+            downloadLink.href = `/download/${jobId}`;
+            downloadLink.style.display = 'inline-block';
+            editBtn.disabled = false;
+            break;
+          } else if (data.status === 'error') {
+            statusBadge.className = 'status-badge status-error';
+            statusBadge.textContent = 'Fehler';
+            statusMsg.textContent = data.error || 'Unbekannter Fehler';
+            editBtn.disabled = false;
+            break;
+          }
+          statusBadge.className = 'status-badge status-processing';
+          statusBadge.textContent = 'Verarbeitung...';
+        } catch (_) {}
+      }
+    }
+  </script>
+</body>
+</html>
