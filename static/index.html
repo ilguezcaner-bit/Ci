@@ -11,7 +11,6 @@
     .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem; }
     h2 { font-size: 1rem; color: #aaa; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: .05em; }
 
-    /* Drop zone */
     #drop-zone {
       border: 2px dashed #333; border-radius: 8px; padding: 2.5rem;
       text-align: center; cursor: pointer; transition: border-color .2s, background .2s;
@@ -20,16 +19,16 @@
     #drop-zone p { color: #666; }
     #drop-zone span { color: #4f8ef7; font-weight: 600; }
 
-    /* Clip list */
-    #clip-list { margin-top: 1rem; display: flex; flex-direction: column; gap: .5rem; }
-    .clip-item {
-      background: #222; border-radius: 6px; padding: .6rem 1rem;
-      display: flex; justify-content: space-between; align-items: center;
-    }
-    .clip-name { font-size: .9rem; }
-    .clip-dur { font-size: .8rem; color: #777; }
+    #clip-list { margin-top: 1rem; display: flex; flex-direction: column; gap: .6rem; }
+    .clip-item { background: #222; border-radius: 6px; padding: .6rem 1rem; }
+    .clip-header { display: flex; justify-content: space-between; align-items: center; }
+    .clip-name { font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
+    .clip-dur { font-size: .8rem; color: #777; white-space: nowrap; }
 
-    /* Instructions */
+    .progress-bar-wrap { margin-top: .4rem; background: #333; border-radius: 4px; height: 5px; overflow: hidden; }
+    .progress-bar { height: 100%; background: #4f8ef7; border-radius: 4px; transition: width .2s; }
+    .progress-label { font-size: .75rem; color: #666; margin-top: .2rem; }
+
     textarea {
       width: 100%; background: #111; border: 1px solid #2a2a2a; border-radius: 6px;
       color: #e0e0e0; font-size: .95rem; padding: .75rem; resize: vertical; min-height: 80px;
@@ -37,7 +36,6 @@
     }
     textarea:focus { outline: none; border-color: #4f8ef7; }
 
-    /* Button */
     button {
       background: #4f8ef7; color: #fff; border: none; border-radius: 6px;
       padding: .65rem 1.5rem; font-size: .95rem; cursor: pointer; font-weight: 600;
@@ -46,7 +44,6 @@
     button:hover { background: #3a7ae0; }
     button:disabled { background: #2a2a2a; color: #555; cursor: not-allowed; }
 
-    /* Plan / Status */
     #plan-box { display: none; }
     pre {
       background: #111; border: 1px solid #2a2a2a; border-radius: 6px;
@@ -54,7 +51,6 @@
       white-space: pre-wrap; word-break: break-all;
     }
 
-    /* Status */
     #status-box { display: none; }
     .status-badge {
       display: inline-block; padding: .3rem .75rem; border-radius: 20px;
@@ -70,7 +66,6 @@
       margin-top: .5rem; font-size: .95rem;
     }
     #download-link:hover { background: #1f4a32; }
-
     .err { color: #f66; font-size: .875rem; margin-top: .5rem; }
   </style>
 </head>
@@ -84,6 +79,7 @@
       <input type="file" id="file-input" multiple accept="video/*" style="display:none">
     </div>
     <div id="clip-list"></div>
+    <div id="upload-err" class="err"></div>
   </div>
 
   <div class="card">
@@ -102,16 +98,19 @@
     <h2>Status</h2>
     <div id="status-badge" class="status-badge status-processing">Verarbeitung...</div>
     <div id="status-msg"></div>
-    <a id="download-link" href="#">Download fertigem Video</a>
+    <a id="download-link" href="#">Fertiges Video herunterladen</a>
   </div>
 
   <script>
+    const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
+
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
     const clipList = document.getElementById('clip-list');
     const editBtn = document.getElementById('edit-btn');
     const instructions = document.getElementById('instructions');
     const errMsg = document.getElementById('err-msg');
+    const uploadErr = document.getElementById('upload-err');
     const planBox = document.getElementById('plan-box');
     const planJson = document.getElementById('plan-json');
     const statusBox = document.getElementById('status-box');
@@ -119,7 +118,8 @@
     const statusMsg = document.getElementById('status-msg');
     const downloadLink = document.getElementById('download-link');
 
-    let uploadedClips = []; // [{clip_id, name, duration}]
+    let uploadedClips = []; // {clip_id, name, duration}
+    let uploading = 0;
 
     dropZone.addEventListener('click', () => fileInput.click());
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
@@ -127,33 +127,83 @@
     dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('over'); handleFiles(e.dataTransfer.files); });
     fileInput.addEventListener('change', () => handleFiles(fileInput.files));
 
-    async function handleFiles(files) {
-      if (!files.length) return;
-      const formData = new FormData();
-      for (const f of files) formData.append('files', f);
-      editBtn.disabled = true;
-      errMsg.textContent = 'Lade hoch...';
-      try {
-        const res = await fetch('/upload', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Upload fehlgeschlagen');
-        uploadedClips = [...uploadedClips, ...data.clips];
-        renderClips();
-        errMsg.textContent = '';
-      } catch (e) {
-        errMsg.textContent = e.message;
-      }
-      updateEditBtn();
+    function handleFiles(files) {
+      for (const file of files) uploadFile(file);
     }
 
-    function renderClips() {
-      clipList.innerHTML = uploadedClips.map(c =>
-        `<div class="clip-item"><span class="clip-name">${c.name}</span><span class="clip-dur">${c.duration.toFixed(2)}s</span></div>`
-      ).join('');
+    function uploadFile(file) {
+      const upload_id = crypto.randomUUID();
+      const total_chunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+
+      // Add placeholder row
+      const row = document.createElement('div');
+      row.className = 'clip-item';
+      row.id = `clip-${upload_id}`;
+      row.innerHTML = `
+        <div class="clip-header">
+          <span class="clip-name">${file.name}</span>
+          <span class="clip-dur" id="dur-${upload_id}">hochladen...</span>
+        </div>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="bar-${upload_id}" style="width:0%"></div></div>
+        <div class="progress-label" id="lbl-${upload_id}">0 / ${total_chunks} Chunks</div>`;
+      clipList.appendChild(row);
+
+      uploading++;
+      updateEditBtn();
+
+      let done = 0;
+
+      async function uploadChunks() {
+        for (let i = 0; i < total_chunks; i++) {
+          const blob = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+          const fd = new FormData();
+          fd.append('file', blob, file.name);
+          fd.append('upload_id', upload_id);
+          fd.append('chunk_index', i);
+          fd.append('total_chunks', total_chunks);
+          fd.append('filename', file.name);
+
+          let res, data;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              res = await fetch('/upload/chunk', { method: 'POST', body: fd });
+              data = await res.json();
+              if (res.ok) break;
+            } catch (e) {
+              if (attempt === 2) throw e;
+              await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+            }
+          }
+          if (!res.ok) throw new Error(data?.detail || 'Chunk-Upload fehlgeschlagen');
+
+          done++;
+          const pct = Math.round(done / total_chunks * 100);
+          document.getElementById(`bar-${upload_id}`).style.width = pct + '%';
+          document.getElementById(`lbl-${upload_id}`).textContent = `${done} / ${total_chunks} Chunks`;
+
+          if (data.status === 'complete') {
+            document.getElementById(`dur-${upload_id}`).textContent = data.duration.toFixed(2) + 's';
+            document.getElementById(`lbl-${upload_id}`).textContent = 'fertig';
+            document.getElementById(`bar-${upload_id}`).style.background = '#4caf82';
+            uploadedClips.push({ clip_id: data.clip_id, name: data.name, duration: data.duration });
+          }
+        }
+      }
+
+      uploadChunks()
+        .catch(e => {
+          uploadErr.textContent = `${file.name}: ${e.message}`;
+          document.getElementById(`lbl-${upload_id}`).textContent = 'Fehler';
+          document.getElementById(`bar-${upload_id}`).style.background = '#f44';
+        })
+        .finally(() => {
+          uploading--;
+          updateEditBtn();
+        });
     }
 
     function updateEditBtn() {
-      editBtn.disabled = uploadedClips.length === 0 || !instructions.value.trim();
+      editBtn.disabled = uploading > 0 || uploadedClips.length === 0 || !instructions.value.trim();
     }
     instructions.addEventListener('input', updateEditBtn);
 
@@ -178,7 +228,6 @@
 
         planBox.style.display = 'block';
         planJson.textContent = JSON.stringify(data.plan, null, 2);
-
         statusBox.style.display = 'block';
         pollStatus(data.job_id);
       } catch (e) {
@@ -207,8 +256,6 @@
             editBtn.disabled = false;
             break;
           }
-          statusBadge.className = 'status-badge status-processing';
-          statusBadge.textContent = 'Verarbeitung...';
         } catch (_) {}
       }
     }
