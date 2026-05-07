@@ -32,8 +32,9 @@ async def upload_clips(files: list = File(...)):
         clip_id = str(uuid.uuid4())
         ext = Path(file.filename).suffix or ".mp4"
         dest = UPLOAD_DIR / f"{clip_id}{ext}"
-        content = await file.read()
-        dest.write_bytes(content)
+        with open(dest, "wb") as f:
+            while chunk := await file.read(1024 * 1024):
+                f.write(chunk)
         try:
             info = get_clip_info(str(dest))
             duration = info["duration"]
