@@ -92,13 +92,15 @@ def concat_with_transitions(segments: list, output_path: str) -> None:
         t_type = segments[i].get("transition_in")
         t_dur = float(segments[i].get("transition_duration") or 1.0)
 
-        if t_type in ("crossfade", "fadeblack"):
-            xfade_name = "fade" if t_type == "crossfade" else "fadeblack"
+        # "crossfade" is our alias for ffmpeg's "fade" effect
+        ALIAS = {"crossfade": "fade"}
+        if t_type:
+            xfade_name = ALIAS.get(t_type, t_type)
             offset = max(0.0, cur_dur - t_dur)
             fv.append(f"{cur_v}[{i}:v]xfade=transition={xfade_name}:duration={t_dur}:offset={offset:.4f}{out_v}")
             fa.append(f"{cur_a}[{i}:a]acrossfade=d={t_dur}{out_a}")
             cur_dur += durations[i] - t_dur
-        else:
+        else:  # hard cut
             fv.append(f"{cur_v}[{i}:v]concat=n=2:v=1:a=0{out_v}")
             fa.append(f"{cur_a}[{i}:a]concat=n=2:v=0:a=1{out_a}")
             cur_dur += durations[i]

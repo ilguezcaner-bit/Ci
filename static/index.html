@@ -218,11 +218,83 @@
           <div class="t-line"></div>
           <select onchange="setTransition(${idx},this.value)">
             <option value="">— Harter Schnitt —</option>
-            <option value="crossfade:0.5">Crossfade 0.5s</option>
-            <option value="crossfade:1">Crossfade 1s</option>
-            <option value="crossfade:2">Crossfade 2s</option>
-            <option value="fadeblack:0.5">Fade to Black 0.5s</option>
-            <option value="fadeblack:1">Fade to Black 1s</option>
+            <optgroup label="⬜ Fade">
+              <option value="crossfade:1">Crossfade 1s</option>
+              <option value="crossfade:0.5">Crossfade 0.5s</option>
+              <option value="crossfade:2">Crossfade 2s</option>
+              <option value="fadeblack:1">Fade to Black 1s</option>
+              <option value="fadeblack:0.5">Fade to Black 0.5s</option>
+              <option value="fadewhite:1">Fade to White 1s</option>
+              <option value="fadegrays:1">Fade to Graustufen 1s</option>
+              <option value="fadefast:0.5">Fade Fast 0.5s</option>
+              <option value="fadeslow:2">Fade Slow 2s</option>
+              <option value="distance:1">Distance 1s</option>
+              <option value="dissolve:1">Dissolve 1s</option>
+              <option value="pixelize:1">Pixelize 1s</option>
+            </optgroup>
+            <optgroup label="➡ Wipe / Slide">
+              <option value="wipeleft:1">Wipe Left 1s</option>
+              <option value="wiperight:1">Wipe Right 1s</option>
+              <option value="wipeup:1">Wipe Up 1s</option>
+              <option value="wipedown:1">Wipe Down 1s</option>
+              <option value="slideleft:1">Slide Left 1s</option>
+              <option value="slideright:1">Slide Right 1s</option>
+              <option value="slideup:1">Slide Up 1s</option>
+              <option value="slidedown:1">Slide Down 1s</option>
+              <option value="smoothleft:1">Smooth Left 1s</option>
+              <option value="smoothright:1">Smooth Right 1s</option>
+              <option value="smoothup:1">Smooth Up 1s</option>
+              <option value="smoothdown:1">Smooth Down 1s</option>
+            </optgroup>
+            <optgroup label="↘ Diagonal">
+              <option value="diagtl:1">Diagonal ↘ 1s</option>
+              <option value="diagtr:1">Diagonal ↙ 1s</option>
+              <option value="diagbl:1">Diagonal ↗ 1s</option>
+              <option value="diagbr:1">Diagonal ↖ 1s</option>
+              <option value="wipetl:1">Wipe ↘ 1s</option>
+              <option value="wipetr:1">Wipe ↙ 1s</option>
+              <option value="wipebl:1">Wipe ↗ 1s</option>
+              <option value="wipebr:1">Wipe ↖ 1s</option>
+            </optgroup>
+            <optgroup label="⭕ Kreis / Form">
+              <option value="circleopen:1">Circle Open 1s</option>
+              <option value="circleclose:1">Circle Close 1s</option>
+              <option value="circlecrop:1">Circle Crop 1s</option>
+              <option value="rectcrop:1">Rect Crop 1s</option>
+              <option value="radial:1">Radial 1s</option>
+            </optgroup>
+            <optgroup label="↔ Öffnen / Schließen">
+              <option value="vertopen:1">Vertical Open 1s</option>
+              <option value="vertclose:1">Vertical Close 1s</option>
+              <option value="horzopen:1">Horizontal Open 1s</option>
+              <option value="horzclose:1">Horizontal Close 1s</option>
+              <option value="squeezeh:1">Squeeze H 1s</option>
+              <option value="squeezev:1">Squeeze V 1s</option>
+            </optgroup>
+            <optgroup label="🎭 Cover / Reveal">
+              <option value="coverleft:1">Cover Left 1s</option>
+              <option value="coverright:1">Cover Right 1s</option>
+              <option value="coverup:1">Cover Up 1s</option>
+              <option value="coverdown:1">Cover Down 1s</option>
+              <option value="revealleft:1">Reveal Left 1s</option>
+              <option value="revealright:1">Reveal Right 1s</option>
+              <option value="revealup:1">Reveal Up 1s</option>
+              <option value="revealdown:1">Reveal Down 1s</option>
+            </optgroup>
+            <optgroup label="🌊 Slice">
+              <option value="hlslice:1">H-Slice Left 1s</option>
+              <option value="hrslice:1">H-Slice Right 1s</option>
+              <option value="vuslice:1">V-Slice Up 1s</option>
+              <option value="vdslice:1">V-Slice Down 1s</option>
+              <option value="hlwind:1">Wind Left 1s</option>
+              <option value="hrwind:1">Wind Right 1s</option>
+              <option value="vuwind:1">Wind Up 1s</option>
+              <option value="vdwind:1">Wind Down 1s</option>
+            </optgroup>
+            <optgroup label="🔍 Zoom">
+              <option value="zoomin:1">Zoom In 1s</option>
+              <option value="hblur:1">H-Blur 1s</option>
+            </optgroup>
           </select>
           <div class="t-line"></div>`;
         conn.querySelector('select').value = curVal;
