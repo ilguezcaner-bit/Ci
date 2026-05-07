@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 
 def get_clip_info(path: str) -> dict:
@@ -16,7 +17,7 @@ def get_clip_info(path: str) -> dict:
     return {"duration": duration, "path": path}
 
 
-def trim_clip(input_path: str, start: float | None, end: float | None, output_path: str) -> None:
+def trim_clip(input_path: str, start: Optional[float], end: Optional[float], output_path: str) -> None:
     cmd = ["ffmpeg", "-y"]
     if start is not None:
         cmd += ["-ss", str(start)]
@@ -30,7 +31,7 @@ def trim_clip(input_path: str, start: float | None, end: float | None, output_pa
     subprocess.run(cmd, capture_output=True, check=True)
 
 
-def concat_clips(clip_paths: list[str], output_path: str) -> None:
+def concat_clips(clip_paths: list, output_path: str) -> None:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         for p in clip_paths:
             f.write(f"file '{p}'\n")
@@ -45,7 +46,7 @@ def concat_clips(clip_paths: list[str], output_path: str) -> None:
         os.unlink(list_file)
 
 
-def process_edit_plan(plan: dict, clip_map: dict[str, str], output_path: str) -> None:
+def process_edit_plan(plan: dict, clip_map: dict, output_path: str) -> None:
     """Execute an edit plan. clip_map maps clip name → file path."""
     steps = plan["steps"]
     tmp_dir = tempfile.mkdtemp()

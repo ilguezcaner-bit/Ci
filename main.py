@@ -20,15 +20,13 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 app = FastAPI(title="Video Editor")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# In-memory state: clip_id → {name, path, duration}
-clips: dict[str, dict] = {}
-# job_id → {status, output_path, plan, error}
-jobs: dict[str, dict] = {}
+clips: dict = {}
+jobs: dict = {}
 jobs_lock = threading.Lock()
 
 
 @app.post("/upload")
-async def upload_clips(files: list[UploadFile] = File(...)):
+async def upload_clips(files: list = File(...)):
     result = []
     for file in files:
         clip_id = str(uuid.uuid4())
@@ -47,7 +45,7 @@ async def upload_clips(files: list[UploadFile] = File(...)):
 
 
 class EditRequest(BaseModel):
-    clip_ids: list[str]
+    clip_ids: list
     instructions: str
 
 
