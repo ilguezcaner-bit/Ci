@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -16,9 +16,8 @@ from ai_parser import parse_instructions
 UPLOAD_DIR = Path("uploads")
 OUTPUT_DIR = Path("outputs")
 CHUNKS_DIR = Path("uploads/.chunks")
-UPLOAD_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
-CHUNKS_DIR.mkdir(exist_ok=True)
+for d in (UPLOAD_DIR, OUTPUT_DIR, CHUNKS_DIR):
+    d.mkdir(exist_ok=True)
 
 app = FastAPI(title="Video Editor")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -26,8 +25,6 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 clips: dict = {}
 jobs: dict = {}
 jobs_lock = threading.Lock()
-
-# upload_id → {name, ext, total_chunks, received: set}
 pending_uploads: dict = {}
 pending_lock = threading.Lock()
 
@@ -47,20 +44,18 @@ async def upload_chunk(
 
     with pending_lock:
         if upload_id not in pending_uploads:
-            ext = Path(filename).suffix or ".mp4"
             pending_uploads[upload_id] = {
                 "name": filename,
-                "ext": ext,
+                "ext": Path(filename).suffix or ".mp4",
                 "total_chunks": total_chunks,
                 "received": set(),
             }
         pending_uploads[upload_id]["received"].add(chunk_index)
-        all_received = len(pending_uploads[upload_id]["received"]) == total_chunks
+        all_done = len(pending_uploads[upload_id]["received"]) == total_chunks
 
-    if not all_received:
+    if not all_done:
         return {"status": "chunk_received", "chunk_index": chunk_index}
 
-    # All chunks received — assemble the file
     with pending_lock:
         info = pending_uploads.pop(upload_id)
 
@@ -68,11 +63,11 @@ async def upload_chunk(
     dest = UPLOAD_DIR / f"{clip_id}{info['ext']}"
     with open(dest, "wb") as out:
         for i in range(info["total_chunks"]):
-            chunk_path = CHUNKS_DIR / f"{upload_id}_{i}"
-            with open(chunk_path, "rb") as c:
+            p = CHUNKS_DIR / f"{upload_id}_{i}"
+            with open(p, "rb") as c:
                 while data := c.read(1024 * 1024):
                     out.write(data)
-            chunk_path.unlink()
+            p.unlink()
 
     try:
         duration = get_clip_info(str(dest))["duration"]
@@ -83,9 +78,20 @@ async def upload_chunk(
     return {"status": "complete", "clip_id": clip_id, "name": info["name"], "duration": duration}
 
 
+@app.get("/preview/{clip_id}")
+def preview_clip(clip_id: str):
+    clip = clips.get(clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+    ext = Path(clip["path"]).suffix.lower()
+    media_types = {".mp4": "video/mp4", ".mov": "video/quicktime", ".avi": "video/x-msvideo", ".mkv": "video/x-matroska"}
+    return FileResponse(clip["path"], media_type=media_types.get(ext, "video/mp4"))
+
+
 class EditRequest(BaseModel):
     clip_ids: list
-    instructions: str
+    instructions: Optional[str] = None
+    plan: Optional[dict] = None
 
 
 def _run_job(job_id: str, plan: dict, clip_map: dict, output_path: str):
@@ -104,19 +110,27 @@ def _run_job(job_id: str, plan: dict, clip_map: dict, output_path: str):
 async def edit_video(req: EditRequest, background_tasks: BackgroundTasks):
     missing = [cid for cid in req.clip_ids if cid not in clips]
     if missing:
-        raise HTTPException(400, f"Unknown clip IDs: {missing}")
-
-    clip_list = [
-        {"name": clips[cid]["name"], "duration": clips[cid]["duration"]}
-        for cid in req.clip_ids
-    ]
-
-    try:
-        plan = parse_instructions(req.instructions, clip_list)
-    except Exception as e:
-        raise HTTPException(500, f"Failed to parse instructions: {e}")
+        raise HTTPException(400, f"Unbekannte clip_ids: {missing}")
 
     clip_map = {clips[cid]["name"]: clips[cid]["path"] for cid in req.clip_ids}
+
+    if req.plan:
+        # Visual mode: plan provided directly, resolve any clip_id refs
+        plan = req.plan
+        for step in plan.get("steps", []):
+            cid = step.pop("clip_id", None)
+            if cid and cid in clips and not step.get("clip"):
+                step["clip"] = clips[cid]["name"]
+    elif req.instructions:
+        # AI mode: parse natural language
+        clip_list = [{"name": clips[cid]["name"], "duration": clips[cid]["duration"]} for cid in req.clip_ids]
+        try:
+            plan = parse_instructions(req.instructions, clip_list)
+        except Exception as e:
+            raise HTTPException(500, f"KI-Parsing fehlgeschlagen: {e}")
+    else:
+        raise HTTPException(400, "Entweder 'plan' oder 'instructions' muss angegeben werden")
+
     job_id = str(uuid.uuid4())
     output_path = str(OUTPUT_DIR / f"{job_id}.mp4")
 
@@ -133,12 +147,7 @@ def job_status(job_id: str):
         job = jobs.get(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    return {
-        "job_id": job_id,
-        "status": job["status"],
-        "plan": job.get("plan"),
-        "error": job.get("error"),
-    }
+    return {"job_id": job_id, "status": job["status"], "plan": job.get("plan"), "error": job.get("error")}
 
 
 @app.get("/download/{job_id}")

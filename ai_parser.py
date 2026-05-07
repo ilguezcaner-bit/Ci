@@ -2,33 +2,37 @@ import json
 import os
 import anthropic
 
-SYSTEM_PROMPT = """You are a video editing assistant. The user will describe how they want to cut and arrange video clips in natural language. Your job is to convert their instructions into a structured JSON edit plan.
+SYSTEM_PROMPT = """You are a video editing assistant. Convert natural language editing instructions into a structured JSON edit plan.
 
 Output ONLY valid JSON in this exact format:
 {
   "steps": [
-    {"clip": "<clip_name>", "start": <seconds_or_null>, "end": <seconds_or_null>, "rotate": <degrees_or_null>}
+    {
+      "clip": "<clip_name>",
+      "start": <seconds_or_null>,
+      "end": <seconds_or_null>,
+      "rotate": <-90|90|180|null>,
+      "transition_in": <"crossfade"|"fadeblack"|null>,
+      "transition_duration": <seconds_or_null>
+    }
   ],
   "output_format": "mp4"
 }
 
 Rules:
-- "clip" must be one of the available clip names provided
-- "start" and "end" are in seconds (floats). Use null to mean "from the beginning" or "until the end"
-- "rotate" is optional. Use -90 for 90° left (counter-clockwise), 90 for 90° right (clockwise), 180 for upside-down. Use null if no rotation is needed
-- Steps are concatenated in order
-- If the user says "the whole clip" or doesn't specify a range, use null for both start and end
-- If the user says "last N seconds" of a clip with known duration D, set start = D - N, end = null
-- If the user says "rotate left", "90° links", "gegen den Uhrzeigersinn" → rotate: -90
-- If the user says "rotate right", "90° rechts", "im Uhrzeigersinn" → rotate: 90
-- Output ONLY the JSON object, no explanation, no markdown code fences"""
+- "clip" must exactly match one of the available clip names
+- "start" / "end" in seconds (float), null = from beginning / until end
+- "rotate": -90 = left/counter-clockwise, 90 = right/clockwise, 180 = upside down, null = no rotation
+- "transition_in": applies between this clip and the previous one (null for first clip or hard cut)
+  - "crossfade" = both clips dissolve into each other
+  - "fadeblack" = fade to black then fade in
+  - null = hard cut
+- "transition_duration": seconds for the transition (0.5, 1, 2, etc.), null if no transition
+- "last N seconds" of clip with duration D → start = D - N, end = null
+- Output ONLY the JSON, no markdown fences, no explanation"""
 
 
-def parse_instructions(instructions: str, clips: list[dict]) -> dict:
-    """
-    clips: list of {"name": str, "duration": float}
-    Returns parsed edit plan dict.
-    """
+def parse_instructions(instructions: str, clips: list) -> dict:
     clip_info = "\n".join(
         f"- {c['name']} (duration: {c['duration']:.2f}s)" for c in clips
     )
@@ -38,18 +42,11 @@ def parse_instructions(instructions: str, clips: list[dict]) -> dict:
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
-        system=[
-            {
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
+        system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user_message}],
     )
 
     raw = response.content[0].text.strip()
-    # Strip markdown fences if model adds them despite instructions
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
